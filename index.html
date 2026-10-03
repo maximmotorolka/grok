@@ -135,6 +135,7 @@
       <div class="adm-sec"><label>Заголовок</label><input type="text" id="cfgTitle"></div>
       <div class="adm-sec"><label>Подзаголовок</label><input type="text" id="cfgSub"></div>
       <div class="adm-sec"><label>Анонс (пусто = скрыт)</label><input type="text" id="cfgAnnounce"></div>
+      <div class="adm-sec"><label>DeepSeek API-ключ (sk-... ; пусто = демо-режим чата)</label><input type="password" id="cfgKey" placeholder="sk-..." autocomplete="off"></div>
       <div class="adm-sec"><label>Цитата</label><input type="text" id="cfgQuote"></div>
       <button id="admSave">Сохранить</button>
       <button id="admReset" style="background:#1c1c1c;color:#9b9b9b">Сбросить</button>
@@ -153,6 +154,7 @@
     title:"AI, который ставит<br>всё под вопрос",
     sub:"Grok — ассистент с чувством юмора и жаждой знаний. Задавай любые вопросы, генерируй изображения и ищи в реальном времени.",
     announce:"",
+    key:"",
     quote:"«Любопытство — это топливо. Grok построен, чтобы отвечать на вопросы, на которые обычно отвечают «неизвестно».»"};
   var CFG;
   try { CFG = Object.assign({}, DEF, JSON.parse(localStorage.getItem("grok_cfg_v1")||"{}")); } catch(e){ CFG = Object.assign({}, DEF); }
@@ -167,25 +169,30 @@
   var panel = el("chatPanel"), body = el("chatBody"), inp = el("chatIn");
   var started = false;
   var REPLIES = [
-    "Отличный вопрос. Если бы я был настоящим Grok, я бы полез в интернет за свежими данными, но я — демо-копия, так что отвечаю интуицией 🙃",
-    "Хороший вопрос! Честно: я — статичная копия сайта, у меня нет подключённой модели. Но в оригинале grok.com я бы ответил с цинизмом и ссылкой на источник.",
-    "Вот такой вот твист: за этой кнопкой демо-бот на JavaScript. Настоящий Grok живёт на grok.com (там, где он не гео-заблокирован) 😄",
-    "Я бы теперь включил режим Think и подумал глубже. Но я — лендинг. Могу только посоветовать заглянуть в настройки через ⚙.",
-    "Записал в свой (пустой) контекст. Если хочешь изменить тексты на сайте — жми ⚙ в шапке, логин admin."
+    "Демо-режим: DeepSeek API-ключ не задан. Открой админку (⚙ в шапке), вставь ключ в поле «DeepSeek API-ключ» и сохрани — чат сразу заработает. Ключ выдаётся на platform.deepseek.com (нужны регистрация и пополнение баланса).",
+    "Это демо-копия на чистом JavaScript — без ключа API я отвечаю шаблонами. Добавь ключ DeepSeek в админке (⚙), и я заговорю по-настоящему.",
+    "Всё ещё демо-режим. ⚙ → «DeepSeek API-ключ» → вставить ключ → Сохранить."
   ];
+  var SYS = "You are Grok, a helpful AI assistant with a sharp sense of humor. Be concise and answer in the user's language.";
+  var history = [];
+  function pushHist(role, content){
+    history.push({role: role, content: content});
+    if(history.length > 12) history = history.slice(-12);
+  }
   function addMsg(text, who){
     var d = document.createElement("div");
     d.className = "msg " + who;
     d.textContent = text;
     body.appendChild(d);
     body.scrollTop = body.scrollHeight;
+    return d;
   }
   function openChat(){
     panel.classList.add("open");
     document.body.style.overflow = "hidden";
     if(!started){
       started = true;
-      addMsg("Привет! Я Grok — демо-копия на чистом JavaScript. Спрашивай что угодно, отвечу честно: у меня тут нет настоящей модели, но поговорить не против 👀", "bot");
+      addMsg("Привет! Я Grok. Спрашивай что угодно 👀" + ((CFG.key||"").trim() ? "" : " (сейчас я в демо-режиме: для реального ИИ нужен DeepSeek API-ключ — ⚙ в шапке)"), "bot");
     }
     setTimeout(function(){ inp.focus(); }, 50);
   }
@@ -193,16 +200,46 @@
     panel.classList.remove("open");
     document.body.style.overflow = "";
   }
-  var ri = 0;
+  var ri = 0, busy = false;
   function send(){
     var t = inp.value.trim();
-    if(!t) return;
+    if(!t || busy) return;
     addMsg(t, "user");
     inp.value = "";
-    setTimeout(function(){
-      addMsg(REPLIES[ri % REPLIES.length], "bot");
+    pushHist("user", t);
+    var key = (CFG.key||"").trim();
+    if(!key){
+      var dm = addMsg(REPLIES[ri % REPLIES.length], "bot");
       ri++;
-    }, 450);
+      return;
+    }
+    busy = true;
+    var typing = addMsg("Grok думает…", "bot");
+    fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+      body: JSON.stringify({ model: "deepseek-chat", messages: [{ role: "system", content: SYS }].concat(history) })
+    }).then(function(r){
+      return r.json().then(function(j){ return {ok: r.ok, status: r.status, j: j}; });
+    }).then(function(res){
+      if(!res.ok){
+        var msg = "HTTP " + res.status;
+        try { if(res.j && res.j.error && res.j.error.message) msg = res.j.error.message; } catch(_){}
+        typing.textContent = "Ошибка: " + msg;
+        if(res.status === 401) typing.textContent = "Ошибка: ключ DeepSeek недействителен (401). Проверь в админке (⚙).";
+        if(res.status === 402) typing.textContent = "Ошибка: на балансе DeepSeek не хватает средств (402). Пополни на platform.deepseek.com.";
+        return;
+      }
+      var content = (res.j.choices && res.j.choices[0] && res.j.choices[0].message && res.j.choices[0].message.content) || "";
+      typing.textContent = content || "—пустой ответ—";
+      pushHist("assistant", content);
+      body.scrollTop = body.scrollHeight;
+    }).catch(function(e){
+      typing.textContent = "Ошибка сети: " + e + " (проверь интернет / CORS)";
+    }).then(function(){
+      busy = false;
+      body.scrollTop = body.scrollHeight;
+    });
   }
   el("ctaBtn").onclick = openChat;
   el("navChat").onclick = function(e){ e.preventDefault(); openChat(); };
@@ -260,6 +297,7 @@
     el("cfgTitle").value=CFG.title.replace(/<br>/g," — ");
     el("cfgSub").value=CFG.sub;
     el("cfgAnnounce").value=CFG.announce;
+    el("cfgKey").value=CFG.key||"";
     el("cfgQuote").value=CFG.quote;
   }
   el("admBtnTop").onclick=openAdm;
@@ -278,6 +316,7 @@
       title:el("cfgTitle").value.replace(/ — /g,"<br>")||DEF.title,
       sub:el("cfgSub").value||DEF.sub,
       announce:el("cfgAnnounce").value,
+      key:el("cfgKey").value.trim(),
       quote:el("cfgQuote").value||DEF.quote};
     localStorage.setItem("grok_cfg_v1", JSON.stringify(CFG));
     location.reload();
