@@ -53,6 +53,7 @@
   .chat-close:hover{color:#fff;border-color:#3a3a3a}
   .chat-body{flex:1;overflow-y:auto;padding:26px 18px;display:flex;flex-direction:column;gap:14px;max-width:760px;width:100%;margin:0 auto}
   .msg{max-width:82%;padding:12px 16px;border-radius:16px;font-size:15px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}
+  .msg a{display:block;margin-top:10px;color:#7ab8ff;text-decoration:underline}
   .msg.bot{background:#161616;border:1px solid var(--line);border-bottom-left-radius:4px;align-self:flex-start}
   .msg.user{background:#e7e9ea;color:#000;border-bottom-right-radius:4px;align-self:flex-end}
   .chat-input{border-top:1px solid var(--line);padding:16px 18px 22px}
@@ -168,11 +169,7 @@
   // ---------- CHAT (demo) ----------
   var panel = el("chatPanel"), body = el("chatBody"), inp = el("chatIn");
   var started = false;
-  var REPLIES = [
-    "Демо-режим: DeepSeek API-ключ не задан. Открой админку (⚙ в шапке), вставь ключ в поле «DeepSeek API-ключ» и сохрани — чат сразу заработает. Ключ выдаётся на platform.deepseek.com (нужны регистрация и пополнение баланса).",
-    "Это демо-копия на чистом JavaScript — без ключа API я отвечаю шаблонами. Добавь ключ DeepSeek в админке (⚙), и я заговорю по-настоящему.",
-    "Всё ещё демо-режим. ⚙ → «DeepSeek API-ключ» → вставить ключ → Сохранить."
-  ];
+  var KEY_HELP = "Как подключить DeepSeek к чату (5 минут):\n1) platform.deepseek.com — регистрация (email)\n2) Billing — пополнить баланс (минимальная сумма)\n3) API Keys — создать ключ sk-...\n4) здесь на сайте: ⚙ (шапка) → admin → поле «DeepSeek API-ключ» → вставить → Сохранить\nБез ключа тоже можно: кнопка ниже — бесплатный веб-чат DeepSeek.";
   var SYS = "You are Grok, a helpful AI assistant with a sharp sense of humor. Be concise and answer in the user's language.";
   var history = [];
   function pushHist(role, content){
@@ -187,12 +184,26 @@
     body.scrollTop = body.scrollHeight;
     return d;
   }
+  function addFreeLink(d){
+    if(!d) return;
+    var a = document.createElement("a");
+    a.href = "https://chat.deepseek.com/";
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = "Открыть бесплатный веб-чат DeepSeek →";
+    d.appendChild(a);
+    body.scrollTop = body.scrollHeight;
+  }
   function openChat(){
     panel.classList.add("open");
     document.body.style.overflow = "hidden";
     if(!started){
       started = true;
-      addMsg("Привет! Я Grok. Спрашивай что угодно 👀" + ((CFG.key||"").trim() ? "" : " (сейчас я в демо-режиме: для реального ИИ нужен DeepSeek API-ключ — ⚙ в шапке)"), "bot");
+      var key = (CFG.key||"").trim();
+      var w = addMsg(key
+        ? "Привет! Я Grok на движке DeepSeek. Спрашивай что угодно 👀"
+        : "Привет! Я Grok. Сейчас без DeepSeek ключа — подскажу, как включить реальный ИИ 👇", "bot");
+      if(!key) addFreeLink(w);
     }
     setTimeout(function(){ inp.focus(); }, 50);
   }
@@ -200,7 +211,7 @@
     panel.classList.remove("open");
     document.body.style.overflow = "";
   }
-  var ri = 0, busy = false;
+  var busy = false;
   function send(){
     var t = inp.value.trim();
     if(!t || busy) return;
@@ -209,8 +220,8 @@
     pushHist("user", t);
     var key = (CFG.key||"").trim();
     if(!key){
-      var dm = addMsg(REPLIES[ri % REPLIES.length], "bot");
-      ri++;
+      var dm = addMsg(KEY_HELP, "bot");
+      addFreeLink(dm);
       return;
     }
     busy = true;
